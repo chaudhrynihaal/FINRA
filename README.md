@@ -1,198 +1,140 @@
-# FINRA
-FINRA BrokerCheck Scraper - Python tool that extracts financial broker data from FINRA's API to Google Sheets. Fetches employment history, disclosures &amp; registrations using MPIDs. Auto-deduplicates, handles pagination, marks progress. Configurable batch processing.
-Here's a comprehensive GitHub-ready description for your FINRA BrokerCheck scraper:
-
----
-
-# FINRA BrokerCheck Scraper
-
-Automated data collection tool that extracts financial advisor and brokerage firm professional backgrounds from FINRA's BrokerCheck API and stores them directly in Google Sheets.
-
 ## Overview
 
-This scraper systematically retrieves detailed employment history, disclosure events, registration status, and professional qualifications for financial industry professionals using their MPIDs (Market Participant Identifiers). It's designed for compliance officers, researchers, and data analysts who need to build and maintain a structured database of broker information.
+This project automates the collection of individual broker records from FINRA (Financial Industry Regulatory Authority) using their public search API. It processes MPID (Market Participant Identifier) records from a Google Sheet, fetches related individual data, and appends the results to a master spreadsheet with deduplication.
 
 ## Features
 
-- **Automated Data Collection**: Fetches comprehensive broker profiles from FINRA's official BrokerCheck API
-- **Google Sheets Integration**: Directly writes structured data to three Google Sheets worksheets for easy access and analysis
-- **Deduplication Logic**: Automatically prevents duplicate records by tracking unique broker IDs
-- **Resumable Processing**: Marks processed MPIDs with a flag, allowing for incremental runs without rework
-- **Rate-Limit Friendly**: Implements configurable delays between API requests to avoid overwhelming the service
-- **Pagination Handling**: Automatically retrieves all pages of results (up to 100 records per request)
-- **Fault Tolerance**: Continues processing remaining MPIDs even if individual requests fail
-- **Audit Trail**: Maintains both raw (TEMP) and deduplicated (MASTER) data stores
+- **Batch Processing** – Process MPIDs in configurable batches with rate limiting
+- **Google Sheets Integration** – Read source MPIDs and write results directly to Google Sheets
+- **Automatic Deduplication** – Prevents duplicate records based on `ind_source_id`
+- **Pagination Handling** – Automatically fetches all pages of results for each MPID
+- **Workbook Size Management** – Monitors Google Sheets 10M cell limit and rolls over to new spreadsheets when needed
+- **Sheet Compaction** – Resizes worksheets to free allocated cells and stay within limits
+- **Configurable Processing** – Adjust batch sizes, sleep intervals, and temp sheet clearing frequency
 
-## Data Fields Collected
+## API Source
 
-| Field | Description |
-|-------|-------------|
-| `ind_source_id` | Unique broker identifier |
-| `ind_firstname` | First name |
-| `ind_middlename` | Middle name |
-| `ind_lastname` | Last name |
-| `ind_other_names` | Alternate names/aliases |
-| `ind_bc_scope` | BrokerCheck scope (Broker/Investment Adviser) |
-| `ind_ia_scope` | Investment adviser scope |
-| `ind_bc_disclosure_fl` | Disclosure flag (any reported incidents) |
-| `ind_approved_finra_registration_count` | Number of FINRA registrations |
-| `ind_employments_count` | Number of employment records |
-| `ind_industry_cal_date` | Industry experience date |
-| `ind_current_employments` | Current employer information |
-| `highlight` | Search result highlights |
-| `MPID` | Source Market Participant ID |
+Data is sourced from FINRA's public BrokerCheck API:
+https://api.brokercheck.finra.org/search/individual
 
-## Requirements
+text
+
+## Prerequisites
 
 - Python 3.7+
 - Google Cloud Platform account with Sheets API enabled
-- Service account credentials (JSON file)
-- Google Sheets with three pre-configured worksheets
-
-### Python Dependencies
-
-```
-pandas
-requests
-gspread
-gspread-dataframe
-oauth2client
-```
+- Service account credentials JSON file
 
 ## Installation
 
-1. **Clone the repository**
 ```bash
 git clone https://github.com/yourusername/finra-brokercheck-scraper.git
 cd finra-brokercheck-scraper
-```
-
-2. **Install dependencies**
-```bash
 pip install -r requirements.txt
-```
+Google Sheets Setup
+Create a Google Cloud Project and enable the Google Sheets API
 
-3. **Set up Google Sheets API**
-   - Create a project in [Google Cloud Console](https://console.cloud.google.com/)
-   - Enable Google Sheets API and Google Drive API
-   - Create a service account and download the JSON credentials file
-   - Share your target spreadsheet with the service account email
+Create a Service Account and download the credentials JSON
 
-4. **Prepare your spreadsheet**
-   - Create three worksheets:
-     - `FINRA - MPID Records` (contains MPIDs to scrape + a flag column)
-     - `BrokerCheck - Individuals - TEMP` (stores raw scraped data)
-     - `BrokerCheck - Individual` (master database of unique records)
+Share your target spreadsheets with the service account email
 
-5. **Configure the script**
-   - Place your `credentials.json` in the project directory
-   - Update `SPREADSHEET_NAME` in the main block
-   - (Optional) Configure proxy settings if needed
+Create a spreadsheet with these worksheets:
 
-## Usage
+Worksheet	Purpose
+FINRA - MPID Records	Contains MPID list and processing flags
+BrokerCheck - Individual	Destination for scraped records
+BrokerCheck - Individuals - TEMP	Temporary staging sheet
+MPID Sheet Structure
+Column	Description
+MPID	Market Participant Identifier to process
+(Flag column)	Set to TRUE after processing (any column containing "flag")
+Configuration
+Edit the following variables in finra_scraper_safe.py:
 
-### Basic Usage
+python
+CREDENTIALS_FILE = "credentials.json"      # Your service account key
+SPREADSHEET_NAME = "Your Spreadsheet Name"
+MAX_MPIDS_PER_RUN = 50                     # Batch size
+TEMP_CLEAR_EVERY_N_MPIDS = 1               # Temp sheet clearing frequency
+Usage
+bash
+# Process default number of MPIDs (configured in script)
+python finra_scraper_safe.py
 
-```python
-from finra_scraper import FINRABrokerCheckScraper
+# Process specific number of MPIDs
+python finra_scraper_safe.py --max-mpids 25
 
-scraper = FINRABrokerCheckScraper(
-    google_sheets_creds_file="credentials.json",
-    spreadsheet_name="Your Spreadsheet Name",
-    proxy=None  # Optional: {"http": "http://proxy:port", "https": "https://proxy:port"}
-)
+# Clear temp sheet every 5 MPIDs
+python finra_scraper_safe.py --temp-clear-every 5
+Utility Scripts
+CSV Cleaner (append_csv.py)
+Cleans corrupted CSV files by removing malformed JSON/dict columns that appear at row boundaries.
 
-# Process up to 10 MPIDs in this run
-scraper.run(max_mpids=10)
-```
+Excel Appender (append_excel.py)
+Command-line utility to append one Excel file to another:
 
-### Command Line
+bash
+python append_excel.py data1.xlsx data2.xlsx combined.xlsx
+Google Sheets Copier (copy_brokercheck.py)
+Copies all data rows from one Google Sheet to another while preserving headers, using batch writes for efficiency.
 
-```bash
-python finra_scraper.py
-```
+Data Fields Collected
+Field	Description
+ind_source_id	Unique individual identifier
+ind_firstname	First name
+ind_middlename	Middle name
+ind_lastname	Last name
+ind_other_names	Other known names
+ind_bc_scope	BrokerCheck scope
+ind_ia_scope	Investment Advisor scope
+ind_bc_disclosure_fl	Disclosure flag
+ind_approved_finra_registration_count	FINRA registration count
+ind_employments_count	Number of employments
+ind_industry_cal_date	Industry calendar date
+ind_current_employments	Current employment details
+highlight	Search highlight data
+MPID	Source MPID
+Rate Limiting & API Courtesy
+The script includes configurable delays to respect FINRA's API:
 
-Modify the `MAX_MPIDS_PER_RUN` variable in the main block to control batch size.
+page_sleep_seconds = 0.25 – Delay between paginated requests
 
-## MPID Worksheet Structure
+mpid_sleep_seconds = 1.0 – Delay between MPID processing
 
-Your MPID worksheet should have at minimum:
+Error Handling & Recovery
+Failed MPIDs are flagged as processed (skipped on next run)
 
-| Column A (MPID) | Column F (Flag) |
-|----------------|-----------------|
-| ABC123 | FALSE |
-| XYZ789 | FALSE |
-| DEF456 | TRUE |
+Master sheet rollover when approaching 10M cell limit
 
-- **MPID Column**: Any column with header "MPID"
-- **Flag Column**: Any column containing "flag" in the header (case-insensitive)
-- Rows with `FALSE` flag are processed; `TRUE` indicates completion
+Temp sheet clearing prevents workbook bloat
 
-## How It Works
+Backup creation before CSV cleaning operations
 
-1. **Preflight Check**: Validates credentials, worksheets, and required columns
-2. **MPID Discovery**: Identifies unprocessed MPIDs (flag = FALSE)
-3. **API Request**: Fetches broker data from FINRA's search endpoint
-4. **Pagination**: Automatically retrieves all result pages
-5. **Data Transformation**: Maps API response to structured fields
-6. **Deduplication**: Checks master sheet for existing records by `ind_source_id`
-7. **Storage**: 
-   - Appends all records to TEMP sheet (audit trail)
-   - Appends only new records to MASTER sheet
-8. **Flag Update**: Marks MPID as processed in the source sheet
-9. **Repeat**: Processes next MPID after configurable delay
+Limitations
+Google Sheets has a 10 million cell limit per workbook
 
-## API Endpoint
+FINRA API may have undocumented rate limits
 
-The scraper uses FINRA's public BrokerCheck API:
-```
-https://api.brokercheck.finra.org/search/individual?query={MPID}&includePrevious=true&nrows=100&start={offset}&wt=json
-```
+Large result sets may require multiple passes
 
-## Configuration Options
+Security Best Practices
+Before publishing this repository:
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `page_sleep_seconds` | 0.25 | Delay between paginated requests |
-| `mpid_sleep_seconds` | 1.0 | Delay between different MPID requests |
-| `MAX_MPIDS_PER_RUN` | 10 | Maximum MPIDs to process in one execution |
-| `nrows` | 100 | Results per API page (API maximum) |
+Delete or revoke the credentials in credentials.json from Google Cloud Console
 
-## Error Handling
+Create a new service account and download fresh credentials
 
-- **Network failures**: Logs error and continues to next MPID
-- **Missing columns**: Preflight check prevents execution
-- **Duplicate records**: Filtered out at master sheet insertion
-- **JSON decode errors**: Skips malformed responses
-- **Rate limiting**: Configurable delays prevent throttling
+Add credentials.json to .gitignore
 
-## Limitations
+Remove any hardcoded spreadsheet IDs from copy_brokercheck.py
 
-- FINRA API may have undocumented rate limits
-- Maximum 100 records per API request
-- Requires manual spreadsheet setup before first run
-- No built-in scheduling (use cron/Task Scheduler for automation)
+Use environment variables for sensitive values:
 
-## Use Cases
+python
+import os
 
-- **Compliance Monitoring**: Track broker employment history and disclosure events
-- **Research**: Build datasets for financial industry analysis
-- **Background Checks**: Automate preliminary due diligence
-- **Data Integration**: Feed broker data into CRM or compliance systems
-- **Audit Trails**: Maintain historical records of broker status changes
-
-## Contributing
-
-Contributions welcome! Areas for improvement:
-- Add support for firm-level data collection
-- Implement incremental updates (detect changed records)
-- Add email notifications for new disclosures
-- Create dashboard templates for data visualization
-- Add command-line argument parsing
-
-
-
-- **1.0.0** - Initial release
-  - Individual broker data collection
-  - Google Sheets integration
-  - Automatic pagination and deduplication
+# Instead of hardcoding:
+CREDENTIALS_FILE = os.getenv("GCP_CREDENTIALS_FILE", "credentials.json")
+SPREADSHEET_NAME = os.getenv("FINRA_SPREADSHEET_NAME")
+License
+MIT
